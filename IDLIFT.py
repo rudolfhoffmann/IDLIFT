@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 IDLIFT — Interval-based Dynamic LIFT
-Author: Based on LIFT by M. Nauta (https://github.com/M-Nauta/LIFT). Extended to IDLIFT by Rudolf Hoffmann and Christoph Reich.
+Author: Rudolf Hoffmann and Christoph Reich
+Based on: LIFT by M. Nauta (https://github.com/M-Nauta/LIFT).
 """
 import pandas as pd
 import numpy as np
