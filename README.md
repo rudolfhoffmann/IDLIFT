@@ -96,4 +96,4 @@ Copyright (c) 2026 Rudolf Hoffmann
 
 ## Author
 
-Rudolf Hoffmann
+Rudolf Hoffmann and Christoph Reich
