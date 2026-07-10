@@ -38,6 +38,27 @@ Gate types: `OR`, `AND`, `PAND`, `SEQ`, `BE` (Basic Event — no children)
 
 ---
 
+## ITET Format
+
+An ITET is a pandas DataFrame where each row is one observation window.  
+Each cell is either `0` (event did not occur) or a **frozenset of `(t_start, t_end)` tuples** — one per occurrence of the event.  
+The label column (Top Event) is binary (`0` or `1`).
+
+```python
+# Example ITET (3 rows, 4 events + Top Event)
+#
+#    BE1                  BE2              BE3   BE4              TE
+# 0  {(0.0, 2.25)}        {(1.5, 4.0)}    0     {(3.8, 6.1)}    1
+# 1  0                    {(0.5, 3.0)}    0     0                0
+# 2  {(1.0, 5.5)}         {(1.0, 3.0),
+#                          (7.0, 9.0)}    0     {(2.8, 4.2)}    1
+Multiple tuples per cell: event fired more than once in that window (e.g., BE2 in row 2)
+0: event did not occur in that window
+TE column: always binary — 1 if the Top Event fired, 0 otherwise
+Use ITET_simulation() to generate synthetic ITET data from a known DFT (see Usage below).
+
+---
+
 ## Usage
 
 ```python
