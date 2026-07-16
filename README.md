@@ -78,9 +78,10 @@ dft = {
 # 2. Generate synthetic ITET training data
 df = ITET_simulation(
     dft,
-    range_seconds=10.0,
+    window_seconds=10.0,  # observation window length; based on your system
     n_samples=1000,
     p_TE=0.5,
+    interval_tolerance=0.05,  # based on sensor sampling rate
     random_seed=42,
 )
 
@@ -90,6 +91,7 @@ match, learned_dft = learnFTandcheck(
     df,
     significance=0.95,
     top_event='TE',
+    interval_tolerance=0.05,
 )
 
 print(learned_dft)
