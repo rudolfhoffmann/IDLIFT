@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 IDLIFT — Interval-based Dynamic LIFT
-Author: Rudolf Hoffmann and Christoph Reich
-Based on: LIFT by M. Nauta (https://github.com/M-Nauta/LIFT).
+Author: Based on LIFT by M. Nauta (https://github.com/M-Nauta/LIFT). Extended to IDLIFT by Rudolf Hoffmann.
 """
 import pandas as pd
 import numpy as np
@@ -496,9 +495,29 @@ def createlayer(significance, df_itet, generatedtree, seen_parent, parentlist, t
             if (df_bool.loc[parent_active_mask, col] == 0).all():
                 dead_events.append(col)
 
-        df_static = df_static.drop(columns=dead_events)
+        # Drop events that are active in EVERY row — the mirror case of the filter above.
+        # A constant event carries no information, so it cannot explain anything, yet it
+        # passes every test in this file: it is active whenever the parent fires (so the
+        # filter above keeps it), and mergeAND/mergePAND make the gate a subset of the
+        # parent by construction, so the dominance pre-filter's 'gate fires but parent
+        # does not' half is always 0. What PAMH then scores is the parent alone, and the
+        # constant child is free padding. Because getavailablesets never builds one-child
+        # sets, a genuine single-child relation gets padded with such a constant and is
+        # reported as a two-child PAND — e.g. PAND(smcAC_low, smcAC_high) is bit-identical
+        # to smcAC_high alone. On the NASA milling data any of 12 constant pairs passed
+        # equally well, which is what makes the padding visibly arbitrary.
+        constant_events = []
+        for col in df_static.columns:
+            if col == parent_node or col in seen_parent:
+                continue
+            if (df_bool[col] == 1).all():
+                constant_events.append(col)
+
+        df_static = df_static.drop(columns=dead_events + constant_events)
         if VERBOSE and dead_events:
             print(f"  Excluded (never active when {parent_node}=1): {dead_events}")
+        if VERBOSE and constant_events:
+            print(f"  Excluded (active in every row, no information): {constant_events}")
 
         availablesets = getavailablesets(df_static, parent_node, seen_parent)
         candidates    = []
@@ -850,7 +869,7 @@ def _union_merge(result, updates):
             result[k] = v
 
 
-def _gen_ordered_intervals(n, window_seconds, min_duration, tolerance):
+def _gen_ordered_intervals(n, range_seconds, min_duration, tolerance):
     """
     Generate n intervals that satisfy the PAND ordering conditions by construction (conditions are automatically satisfied).
 
@@ -870,18 +889,18 @@ def _gen_ordered_intervals(n, window_seconds, min_duration, tolerance):
     step = tolerance + 0.01
 
     if n == 1:
-        s = round(random.uniform(0, max(0, window_seconds - min_duration)), 3)
-        e = round(random.uniform(s + min_duration, min(s + window_seconds * 0.5, window_seconds)), 3)
+        s = round(random.uniform(0, max(0, range_seconds - min_duration)), 3)
+        e = round(random.uniform(s + min_duration, min(s + range_seconds * 0.5, range_seconds)), 3)
         return [(s, e)]
 
     intervals = []
 
     # First interval: its end must extend far enough past s0+step so that s1 can be drawn inside it.
-    # max_s0 leaves enough room for all n intervals to fit within window_seconds.
-    max_s0 = max(0.0, window_seconds - n * (step + min_duration))
+    # max_s0 leaves enough room for all n intervals to fit within range_seconds.
+    max_s0 = max(0.0, range_seconds - n * (step + min_duration))
     s0 = round(random.uniform(0, max_s0), 3)
     min_e0 = s0 + step + 0.001   # guarantees the range (s0+step, e0) is non-empty for s1
-    max_e0 = min(s0 + window_seconds * 0.7, window_seconds)
+    max_e0 = min(s0 + range_seconds * 0.7, range_seconds)
     if min_e0 > max_e0:
         max_e0 = min_e0  # fallback: accept minimum end even if it exceeds the soft cap
     e0 = round(random.uniform(min_e0, max_e0), 3)
@@ -906,7 +925,7 @@ def _gen_ordered_intervals(n, window_seconds, min_duration, tolerance):
         else:
             # Last interval: only needs to meet the minimum duration.
             min_ei = si + min_duration
-        max_ei = min(si + window_seconds * 0.6, window_seconds)
+        max_ei = min(si + range_seconds * 0.6, range_seconds)
         if min_ei > max_ei:
             max_ei = min_ei
         ei = round(random.uniform(min_ei, max_ei), 3)
@@ -915,7 +934,7 @@ def _gen_ordered_intervals(n, window_seconds, min_duration, tolerance):
     return intervals
 
 
-def _sample_row_topdown(dft, top_event, should_fire, window_seconds,
+def _sample_row_topdown(dft, top_event, should_fire, range_seconds,
                         p_or_child_fire, min_duration, tolerance):
     """
     Generate one row of the ITET by propagating the firing decision top-down through the DFT.
@@ -936,9 +955,9 @@ def _sample_row_topdown(dft, top_event, should_fire, window_seconds,
 
 
     def _free_iv():
-        # Generate a random interval anywhere in the observation window [0, window_seconds].
-        s = round(random.uniform(0, max(0, window_seconds - min_duration)), 3)
-        e = round(random.uniform(s + min_duration, min(s + window_seconds * 0.5, window_seconds)), 3)
+        # Generate a random interval anywhere in the observation window [0, range_seconds].
+        s = round(random.uniform(0, max(0, range_seconds - min_duration)), 3)
+        e = round(random.uniform(s + min_duration, min(s + range_seconds * 0.5, range_seconds)), 3)
         return (s, e)
 
 
@@ -1014,7 +1033,7 @@ def _sample_row_topdown(dft, top_event, should_fire, window_seconds,
                 else:
                     # No forced window — generate freely and use the last child's interval as the gate output.
                     # The last child determines when the ordered sequence completes, which is the natural output time of a PAND/SEQ gate.
-                    ivs = _gen_ordered_intervals(len(children), window_seconds, min_duration, tolerance)
+                    ivs = _gen_ordered_intervals(len(children), range_seconds, min_duration, tolerance)
                     gate_iv = ivs[-1]
                 result = {node: frozenset([gate_iv])}
                 for i, child in enumerate(children):
@@ -1041,7 +1060,7 @@ def _sample_row_topdown(dft, top_event, should_fire, window_seconds,
                     return result
                 else:
                     # Assign intervals in reverse order: last child gets the earliest interval.
-                    ivs = _gen_ordered_intervals(len(children), window_seconds, min_duration, tolerance)
+                    ivs = _gen_ordered_intervals(len(children), range_seconds, min_duration, tolerance)
                     result = {node: 0}
                     for i, child in enumerate(children):
                         _union_merge(result, generate(child, True, ivs[len(children) - 1 - i]))
@@ -1158,7 +1177,7 @@ def _ancestors_of(dft, nodes):
     return affected
 
 
-def ITET_simulation(dft, window_seconds, n_samples, top_event=None, p_TE=0.5, p_or_child_fire=0.5, min_duration=0.2, interval_tolerance=INTERVAL_TOLERANCE, random_seed=None):
+def ITET_simulation(dft, range_seconds, n_samples, top_event=None, p_TE=0.5, p_or_child_fire=0.5, min_duration=0.2, interval_tolerance=INTERVAL_TOLERANCE, random_seed=None):
     """
     Generate a synthetic ITET DataFrame from a DFT using top-down sampling followed by bottom-up recomputation (if shared events available).
 
@@ -1183,7 +1202,7 @@ def ITET_simulation(dft, window_seconds, n_samples, top_event=None, p_TE=0.5, p_
     Parameters
     ----------
     dft: reference DFT dict that defines the structure to simulate
-    window_seconds: length of the observation window in seconds
+    range_seconds: length of the observation window in seconds
     n_samples: number of rows to generate
     top_event: name of the TE (auto-detected if None)
     p_TE: fraction of rows where the TE fires (label balance)
@@ -1225,7 +1244,7 @@ def ITET_simulation(dft, window_seconds, n_samples, top_event=None, p_TE=0.5, p_
     for _ in range(n_samples):
         should_fire = random.random() < p_TE
 
-        node_values = _sample_row_topdown(dft, top_event, should_fire, window_seconds, p_or_child_fire, min_duration, interval_tolerance)
+        node_values = _sample_row_topdown(dft, top_event, should_fire, range_seconds, p_or_child_fire, min_duration, interval_tolerance)
 
         if affected_nodes:
             node_values = _evaluate_bottomup(dft, top_event, node_values, interval_tolerance, affected_nodes)
